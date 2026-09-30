@@ -5,7 +5,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import LeaveOneGroupOut, StratifiedGroupKFold
 from sklearn.metrics import roc_auc_score
 
-print("[1/4] Veriler yükleniyor...")
+print("[1/4] Loading cohort data and reference sequences...")
 cohort = pd.read_csv('data/raw/strictly_matched_cohort.csv')
 fasta_path = 'data/raw/araport11_tx.fa'
 
@@ -25,11 +25,11 @@ with open(fasta_path) as f:
             curr_seq.append(line)
     if curr_id: tx_seqs[curr_id] = "".join(curr_seq).upper()
 
-# Çift (Pair) ID ataması: ilk 84 pozitif ve sonraki 84 negatif birebir eşlenik
+# Assign pair identifiers: first 84 positives match 1:1 with subsequent 84 controls
 n_pairs = 84
 cohort['pair_id'] = list(range(n_pairs)) + list(range(n_pairs))
 
-# Dizi matrisleri (Dinükleotit, 3-mer, 4-mer)
+# Sequence feature matrices (dinucleotide, 3-mer, 4-mer)
 bases = ['A', 'C', 'G', 'T']
 kmers_2 = [''.join(p) for p in itertools.product(bases, repeat=2)]
 kmers_3 = [''.join(p) for p in itertools.product(bases, repeat=3)]
@@ -75,8 +75,8 @@ y = cohort['label'].values
 pair_groups = cohort['pair_id'].values
 
 print("\n" + "="*75)
-print("1. ÇİFT-FARKINDA (PAIR-AWARE) KONTROL TESTİ: StratifiedGroupKFold (5-Fold)")
-print("   (Bir çiftin pozitif ve negatifi ASLA ayrılmaz; aynı fold'a düşer)")
+print("1. PAIR-AWARE BENCHMARK: StratifiedGroupKFold (5-Fold)")
+print("   (Matched pairs are constrained to the same validation fold)")
 print("="*75)
 
 sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
@@ -91,20 +91,20 @@ def evaluate_pair_aware(X_mat, name):
     print(f"{name:<35} -> AUROC: {np.mean(aucs):.4f} ± {np.std(aucs):.4f}")
     return aucs
 
-cov_scores = evaluate_pair_aware(X_cov, "Kovaryat-Only (Çift-Farkında)")
-k2_scores = evaluate_pair_aware(X_k2, "Dinükleotit (16 feat)")
+cov_scores = evaluate_pair_aware(X_cov, "Covariate-Only (Pair-Aware)")
+k2_scores = evaluate_pair_aware(X_k2, "Dinucleotide (16 feat)")
 k3_scores = evaluate_pair_aware(X_k3, "3-mer Baseline (64 feat)")
 k4_scores = evaluate_pair_aware(X_k4, "4-mer Baseline (256 feat)")
 
-# Etiket permütasyon testi (Çiftler içinde etiket çevirme)
+# Label permutation control (within-pair label flipping)
 print("\n" + "="*75)
-print("2. ETİKET PERMÜTASYON KONTROLÜ (Çift İçi Çevirme, 100 Tekrar)")
+print("2. LABEL PERMUTATION NULL CONTROL (Within-Pair Shuffling, 100 Iterations)")
 print("="*75)
 perm_aucs = []
 np.random.seed(42)
 for _ in range(100):
     y_perm = y.copy()
-    # Her çift için %50 ihtimalle etiketleri takas et
+    # Swap labels within each matched pair with 50% probability
     for p in range(n_pairs):
         if np.random.rand() > 0.5:
             idx_pos = p
@@ -119,5 +119,5 @@ for _ in range(100):
         fold_aucs.append(roc_auc_score(y_perm[test_idx], probs))
     perm_aucs.append(np.mean(fold_aucs))
 
-print(f"Permüte Edilmiş Kovaryat AUROC (Beklenen ~0.50): {np.mean(perm_aucs):.4f} ± {np.std(perm_aucs):.4f}")
+print(f"Permuted Covariate Baseline AUROC (Theoretical Null ~0.50): {np.mean(perm_aucs):.4f} ± {np.std(perm_aucs):.4f}")
 print("="*75)

@@ -24,7 +24,7 @@ with open(fasta_path) as f:
             curr_seq.append(line)
     if curr_id: tx_seqs[curr_id] = "".join(curr_seq).upper()
 
-# 1. Dizi matrislerini hazırla (Dinükleotit, 3-mer, 4-mer)
+# Extract sequence composition matrices (dinucleotide, 3-mer, 4-mer)
 bases = ['A', 'C', 'G', 'T']
 kmers_2 = [''.join(p) for p in itertools.product(bases, repeat=2)]
 kmers_3 = [''.join(p) for p in itertools.product(bases, repeat=3)]
@@ -71,7 +71,7 @@ y = cohort['label'].values
 groups = cohort['locus'].values
 
 print("======================================================================")
-print("1. KONTROL: KOVARYAT-ONLY MODEL (Stratified 5-Fold, Lokus Sızıntısız Çiftler)")
+print("1. NEGATIVE CONTROL: COVARIATE-ONLY BASELINE (Stratified 5-Fold)")
 print("======================================================================")
 skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 cov_aucs = []
@@ -80,15 +80,15 @@ for train_idx, test_idx in skf.split(X_cov, y):
     rf.fit(X_cov[train_idx], y[train_idx])
     probs = rf.predict_proba(X_cov[test_idx])[:, 1]
     cov_aucs.append(roc_auc_score(y[test_idx], probs))
-print(f"Kovaryat-Only (Stratified) AUROC: {np.mean(cov_aucs):.4f} ± {np.std(cov_aucs):.4f}")
+print(f"Covariate-only AUROC: {np.mean(cov_aucs):.4f} ± {np.std(cov_aucs):.4f}")
 
 print("\n======================================================================")
-print("2. EŞLEŞTİRİLMİŞ TEMİZ VERİDE SEKANS SİNYALİ TESTİ (10-Fold Lokus Group-CV)")
+print("2. SEQUENCE COMPOSITION MODELS (10-Fold Locus-Aware Group-CV)")
 print("======================================================================")
 gkf = GroupKFold(n_splits=10)
 
 models = {
-    "Dinukleotit (16 feat)": X_k2,
+    "Dinucleotide (16 feat)": X_k2,
     "3-mer Baseline (64 feat)": X_k3,
     "4-mer Baseline (256 feat)": X_k4,
 }
@@ -101,5 +101,5 @@ for name, X in models.items():
         probs = rf.predict_proba(X[test_idx])[:, 1]
         if len(np.unique(y[test_idx])) > 1:
             scores.append(roc_auc_score(y[test_idx], probs))
-    print(f"{name:<25} -> AUROC: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
+    print(f"{name:<26} -> AUROC: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
 print("======================================================================")

@@ -9,7 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.metrics import roc_auc_score
 
-print("[1/3] Araport11 ve pozitif havuz yükleniyor...")
+print("[1/3] Loading Araport11 annotations and candidate pools...")
 gff_path = 'data/raw/Araport11.gff3'
 fasta_path = 'data/raw/araport11_tx.fa'
 df_v2 = pd.read_csv('data/raw/cohort_276_features_v2.csv')
@@ -55,7 +55,7 @@ with open(gff_path) as f:
         elif ftype == 'exon' and gid:
             exon_counts[gid] += 1
 
-# Pozitifleri ayır (84 resmi ncRNA vs 54 atılan)
+# Segregate positives: 84 single-locus official ncRNAs vs 54 excluded candidates
 pos_all = [clean_id(x) for x in df_v2['id'].iloc[:138].values]
 pos_84, pos_discarded = [], []
 pos_locus_seen = set()
@@ -70,9 +70,9 @@ for tid in pos_all:
     else:
         pos_discarded.append(tid)
 
-print(f"84 Tutulan Pozitif, {len(pos_discarded)} Atılan Pozitif (Biyotip uyuşmazlığı / GFF'de bulunamayan).")
+print(f"Retained positives: {len(pos_84)}, Excluded candidates: {len(pos_discarded)}")
 
-# Negatif havuzu (3696 aday)
+# Candidate negative pool (3,696 uncharacterized Araport11 ncRNAs)
 neg_candidates = []
 neg_locus_seen = set()
 for tid, btype in tx_biotype.items():
@@ -113,8 +113,8 @@ def get_k2(df_in):
         mat.append(c / t)
     return np.array(mat)
 
-# 20 Bağımsız Eşleştirme (k-NN çekilişi gürültüsü ile)
-print("\n[2/3] 20 Bağımsız Eşleştirme ve Çift-Farkında CV Simülasyonu...")
+# 20 independent negative match samplings using k-NN neighborhood stochasticity
+print("\n[2/3] Simulating 20 independent match iterations with pair-aware CV...")
 features = ['length', 'gc', 'exon_count', 'isoform_count']
 scaler = StandardScaler()
 X_pool_norm = scaler.fit_transform(neg_pool_df[features])
@@ -125,7 +125,7 @@ multi_k2_aucs = []
 
 np.random.seed(42)
 for draw in range(20):
-    # k-NN'de ilk 10 en yakın komşu arasından rastgele 1 tane seçerek 20 farklı eşlenik seti üret
+    # Sample uniformly among the top-10 nearest neighbors to capture control selection uncertainty
     nn = NearestNeighbors(n_neighbors=10, metric='euclidean')
     nn.fit(X_pool_norm)
     _, indices = nn.kneighbors(X_pos_norm)
@@ -145,7 +145,7 @@ for draw in range(20):
     
     sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=draw)
     
-    # Kovaryat
+    # Evaluate covariate vs dinucleotide models
     c_scores, k_scores = [], []
     for train_idx, test_idx in sgkf.split(X_cov, y_c, groups=p_groups):
         rf_c = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
@@ -160,19 +160,19 @@ for draw in range(20):
     multi_k2_aucs.append(np.mean(k_scores))
 
 print("="*75)
-print("1. 20 BAĞIMSIZ EŞLEŞTİRME ÇEKİLİŞİ DAĞILIMI")
+print("1. EVALUATION ACROSS 20 INDEPENDENT CONTROL MATCHING DRAWS")
 print("="*75)
-print(f"Kovaryat-Only AUROC (20 Çekiliş Ortalaması) : {np.mean(multi_cov_aucs):.4f} ± {np.std(multi_cov_aucs):.4f} [Aralık: {np.min(multi_cov_aucs):.4f} - {np.max(multi_cov_aucs):.4f}]")
-print(f"Dinükleotit AUROC   (20 Çekiliş Ortalaması) : {np.mean(multi_k2_aucs):.4f} ± {np.std(multi_k2_aucs):.4f} [Aralık: {np.min(multi_k2_aucs):.4f} - {np.max(multi_k2_aucs):.4f}]")
+print(f"Covariate-only AUROC (20-draw mean): {np.mean(multi_cov_aucs):.4f} ± {np.std(multi_cov_aucs):.4f} [Range: {np.min(multi_cov_aucs):.4f} - {np.max(multi_cov_aucs):.4f}]")
+print(f"Dinucleotide AUROC   (20-draw mean): {np.mean(multi_k2_aucs):.4f} ± {np.std(multi_k2_aucs):.4f} [Range: {np.min(multi_k2_aucs):.4f} - {np.max(multi_k2_aucs):.4f}]")
 
-# Atılan 54 Pozitifin Dağılımı
+# Breakdown of the 54 excluded positive candidates
 print("\n" + "="*75)
-print("2. DIŞLANAN 54 POZİTİFİN DETAYI (ASILMA GEREKÇESİ)")
+print("2. BREAKDOWN OF EXCLUDED POSITIVE CANDIDATES (EXCLUSION CRITERIA)")
 print("="*75)
 disc_biotypes = defaultdict(int)
 for tid in pos_discarded:
-    b = tx_biotype.get(tid, 'GFF3_kaydı_yok / unannotated')
+    b = tx_biotype.get(tid, 'unannotated / missing in GFF3')
     disc_biotypes[b] += 1
 for b, count in disc_biotypes.items():
-    print(f"  - {b:<35}: {count} transkript")
+    print(f"  - {b:<35}: {count} transcripts")
 print("="*75)

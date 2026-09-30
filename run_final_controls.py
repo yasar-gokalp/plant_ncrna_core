@@ -6,7 +6,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.metrics import roc_auc_score
 
-print("[1/3] Veriler yükleniyor...")
+print("[1/3] Loading datasets and annotations...")
 cohort = pd.read_csv('data/raw/strictly_matched_cohort.csv')
 fasta_path = 'data/raw/araport11_tx.fa'
 df_v2 = pd.read_csv('data/raw/cohort_276_features_v2.csv')
@@ -28,7 +28,7 @@ with open(fasta_path) as f:
             curr_seq.append(line)
     if curr_id: tx_seqs[curr_id] = "".join(curr_seq).upper()
 
-# 5 protein-coding ID'sini belirle
+# Identify the 5 protein-coding transcripts excluded from the final cohort
 tx_biotype = {}
 with open(gff_path) as f:
     for line in f:
@@ -45,7 +45,7 @@ with open(gff_path) as f:
 pos_all = [clean_id(x) for x in df_v2['id'].iloc[:138].values]
 coding_pos = [tid for tid in pos_all if tx_biotype.get(tid) == 'protein_coding' and tid in tx_seqs]
 
-# Dinükleotit çıkarma
+# Extract dinucleotide frequency matrices
 bases = ['A', 'C', 'G', 'T']
 kmers_2 = [''.join(p) for p in itertools.product(bases, repeat=2)]
 k2_map = {k: i for i, k in enumerate(kmers_2)}
@@ -66,7 +66,7 @@ X_train = extract_k2(cohort['id'])
 y_train = cohort['label'].values
 pair_groups = list(range(84)) + list(range(84))
 
-# CD-HIT .clstr dosyasını kontrol et (çok üyeli kümeler aynı pair_id'ye mi ait?)
+# Inspect CD-HIT .clstr output (verify multi-member clusters across pairs)
 clstr_path = 'data/raw/cohort_84_c80.clstr'
 clusters = {}
 curr_cl = None
@@ -81,22 +81,22 @@ with open(clstr_path) as f:
                 clusters[curr_cl].append(clean_id(m.group(1)))
 
 multi_clusters = {k: v for k, v in clusters.items() if len(v) > 1}
-print(f"CD-HIT %80 homolojiye sahip çoklu küme sayısı: {len(multi_clusters)}")
+print(f"CD-HIT clusters with >=80% sequence identity: {len(multi_clusters)}")
 for cl, members in multi_clusters.items():
     print(f"  {cl}: {members}")
 
-# 84 çiftlik modelin eğitimi
+# Fit model on the 84-pair matched benchmark
 rf = RandomForestClassifier(n_estimators=100, max_depth=4, random_state=42)
 rf.fit(X_train, y_train)
 
-# Dışlanan 5 protein-coding'i skorla
+# Score excluded protein-coding transcripts as a sanity control
 if coding_pos:
     X_coding = extract_k2(coding_pos)
     coding_probs = rf.predict_proba(X_coding)[:, 1]
     print("\n" + "="*70)
-    print("DIŞLANAN 5 PROTEIN-CODING TRANSKRİPTİN MODEL TAHMİNLERİ (Skorlar)")
+    print("CONTROL: PREDICTED PROBABILITIES FOR EXCLUDED PROTEIN-CODING TRANSCRIPTS")
     print("="*70)
     for tid, p in zip(coding_pos, coding_probs):
-        print(f"ID: {tid:<15} | Pozitif Olasılığı (RF Prob): {p:.4f}")
-    print(f"Ortalama Skor: {np.mean(coding_probs):.4f}")
+        print(f"ID: {tid:<15} | Predicted Probability: {p:.4f}")
+    print(f"Mean Score: {np.mean(coding_probs):.4f}")
 print("="*70)

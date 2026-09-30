@@ -18,3 +18,4 @@ data/raw/candidate_negatives.fa
 data/raw/pool_c80*
 data/raw/pool_for_cdhit.fa
 *.tar.gz
+ncrna_core/target/
